@@ -248,7 +248,6 @@ func (port *unixPort) SetReadTimeoutEx(t, i uint32) error {
 	if !port.opened {
 		return &PortError{code: PortClosed}
 	}
-
 	settings, err := port.getTermSettings()
 	if err != nil {
 		return err
@@ -337,9 +336,10 @@ func nativeOpen(portName string, mode *Mode) (*unixPort, error) {
 	}
 
 	// Setup serial port
-	if port.SetMode(mode) != nil {
+	err = port.SetMode(mode)
+	if err != nil {
 		port.Close()
-		return nil, &PortError{code: InvalidSerialPort}
+		return nil, &PortError{code: InvalidSerialPort, causedBy: err}
 	}
 
 	settings, err := port.getTermSettings()
@@ -426,17 +426,21 @@ func nativeGetPortsList() ([]string, error) {
 
 func setTermSettingsBaudrate(speed int, settings *unix.Termios) error {
 	baudrate, ok := baudrateMap[speed]
-	if !ok {
-		return &PortError{code: InvalidSpeed}
-	}
-	// revert old baudrate
 	for _, rate := range baudrateMap {
 		settings.Cflag &^= rate
 	}
-	// set new baudrate
-	settings.Cflag |= baudrate
-	settings.Ispeed = toTermiosSpeedType(baudrate)
-	settings.Ospeed = toTermiosSpeedType(baudrate)
+	if !ok {
+		// custom baudrate
+		settings.Cflag &^= unix.CBAUD
+		settings.Cflag |= unix.BOTHER
+		settings.Ispeed = uint32(speed)
+		settings.Ospeed = uint32(speed)
+	} else {
+		// set new baudrate standard
+		settings.Cflag |= baudrate
+		settings.Ispeed = toTermiosSpeedType(baudrate)
+		settings.Ospeed = toTermiosSpeedType(baudrate)
+	}
 	return nil
 }
 
@@ -556,11 +560,24 @@ func setRawMode(settings *unix.Termios) {
 func (port *unixPort) getTermSettings() (*unix.Termios, error) {
 	settings := new(unix.Termios)
 	err := ioctl(port.handle, ioctlTcgetattr, uintptr(unsafe.Pointer(settings)))
+	if settings.Cflag&unix.BOTHER == unix.BOTHER {
+		settings, err = port.getTermSettings2()
+	}
+	return settings, err
+}
+
+func (port *unixPort) getTermSettings2() (*unix.Termios, error) {
+	settings := new(unix.Termios)
+	err := ioctl(port.handle, unix.TCGETS2, uintptr(unsafe.Pointer(settings)))
 	return settings, err
 }
 
 func (port *unixPort) setTermSettings(settings *unix.Termios) error {
-	return ioctl(port.handle, ioctlTcsetattr, uintptr(unsafe.Pointer(settings)))
+	setAtrr := ioctlTcsetattr
+	if settings.Cflag&unix.BOTHER == unix.BOTHER {
+		setAtrr = unix.TCSETS2
+	}
+	return ioctl(port.handle, setAtrr, uintptr(unsafe.Pointer(settings)))
 }
 
 func (port *unixPort) getModemBitsStatus() (int, error) {
