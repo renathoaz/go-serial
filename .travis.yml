@@ -3,7 +3,7 @@ language: go
 go:
   - 1.11.x
 
-go_import_path: github.com/albenik/go-serial
+go_import_path: github.com/renathoaz/go-serial
 
 env:
   - TEST_OS=linux TEST_ARCH=386

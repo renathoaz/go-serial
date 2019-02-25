@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/albenik/go-serial"
+	"github.com/renathoaz/go-serial"
 )
 
 func nativeGetDetailedPortsList() ([]*PortDetails, error) {
@@ -21,7 +21,6 @@ func nativeGetDetailedPortsList() ([]*PortDetails, error) {
 	if err != nil {
 		return nil, &PortEnumerationError{causedBy: err}
 	}
-
 	var res []*PortDetails
 	for _, port := range ports {
 		details, err := nativeGetPortDetails(port)

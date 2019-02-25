@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/albenik/go-serial/unixutils"
+	"github.com/renathoaz/go-serial/unixutils"
 )
 
 type unixPort struct {
@@ -43,11 +43,13 @@ func (port *unixPort) Close() error {
 
 	err := func() error {
 		// Send close signal to all pending reads (if any) and close signaling pipe
-		if _, err := port.closeSignal.Write([]byte{0}); err != nil {
-			return err
-		}
-		if err := port.closeSignal.Close(); err != nil {
-			return err
+		if port.closeSignal != nil {
+			if _, err := port.closeSignal.Write([]byte{0}); err != nil {
+				return err
+			}
+			if err := port.closeSignal.Close(); err != nil {
+				return err
+			}
 		}
 		// Release exclusive access
 		if err := ioctl(port.handle, unix.TIOCNXCL, 0); err != nil {
@@ -56,6 +58,7 @@ func (port *unixPort) Close() error {
 		if err := unix.Close(port.handle); err != nil {
 			return err
 		}
+		port.opened = false
 		return nil
 	}()
 
@@ -376,6 +379,7 @@ func nativeOpen(portName string, mode *Mode) (*unixPort, error) {
 }
 
 func nativeGetPortsList() ([]string, error) {
+
 	files, err := ioutil.ReadDir(devFolder)
 	if err != nil {
 		return nil, err
@@ -415,7 +419,6 @@ func nativeGetPortsList() ([]string, error) {
 		// Save serial port in the resulting list
 		ports = append(ports, portName)
 	}
-
 	return ports, nil
 }
 

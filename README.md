@@ -6,7 +6,7 @@ A cross-platform serial library for go-lang based on [github.com/bugst/go-serial
 
 ## Documentation and examples
 
-See the godoc here: https://godoc.org/github.com/albenik/go-serial
+See the godoc here: https://godoc.org/github.com/renathoaz/go-serial
 
 ## License
 
