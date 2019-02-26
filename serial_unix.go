@@ -25,6 +25,8 @@ type unixPort struct {
 	handle int
 	opened bool
 
+	ioctlGetRequest  uint64
+	ioctlSetRequest  uint64
 	firstByteTimeout bool
 	readTimeout      int
 	writeTimeout     int
@@ -176,11 +178,31 @@ func (port *unixPort) ResetOutputBuffer() error {
 	return ioctl(port.handle, ioctlTcflsh, unix.TCOFLUSH)
 }
 
+func (port *unixPort) setIoctlRequest(speed int) error {
+	if speed == 0 {
+		return &PortError{code: InvalidSpeed}
+	}
+	_, ok := baudrateMap[speed]
+	if !ok {
+		//custom baudrate ioctl sets and gets
+		port.ioctlGetRequest = unix.TCGETS2
+		port.ioctlSetRequest = unix.TCSETS2
+	} else {
+		//standard baudrate ioctl sets and gets
+		port.ioctlGetRequest = ioctlTcgetattr
+		port.ioctlSetRequest = ioctlTcsetattr
+	}
+	return nil
+}
+
 func (port *unixPort) SetMode(mode *Mode) error {
 	if !port.opened {
 		return &PortError{code: PortClosed}
 	}
 
+	if err := port.setIoctlRequest(mode.BaudRate); err != nil {
+		return err
+	}
 	settings, err := port.getTermSettings()
 	if err != nil {
 		return err
@@ -330,6 +352,8 @@ func nativeOpen(portName string, mode *Mode) (*unixPort, error) {
 		handle: h,
 		opened: true,
 
+		ioctlGetRequest:  ioctlTcgetattr,
+		ioctlSetRequest:  ioctlTcsetattr,
 		firstByteTimeout: true,
 		readTimeout:      1000, // Backward compatible default value
 		writeTimeout:     0,
@@ -433,13 +457,13 @@ func setTermSettingsBaudrate(speed int, settings *unix.Termios) error {
 		// custom baudrate
 		settings.Cflag &^= unix.CBAUD
 		settings.Cflag |= unix.BOTHER
-		settings.Ispeed = uint32(speed)
-		settings.Ospeed = uint32(speed)
+		settings.Ispeed = toTermiosSpeedType(speed)
+		settings.Ospeed = toTermiosSpeedType(speed)
 	} else {
-		// set new baudrate standard
+		// standard baudrate
 		settings.Cflag |= baudrate
-		settings.Ispeed = toTermiosSpeedType(baudrate)
-		settings.Ospeed = toTermiosSpeedType(baudrate)
+		settings.Ispeed = baudrate
+		settings.Ospeed = baudrate
 	}
 	return nil
 }
@@ -559,25 +583,12 @@ func setRawMode(settings *unix.Termios) {
 
 func (port *unixPort) getTermSettings() (*unix.Termios, error) {
 	settings := new(unix.Termios)
-	err := ioctl(port.handle, ioctlTcgetattr, uintptr(unsafe.Pointer(settings)))
-	if settings.Cflag&unix.BOTHER == unix.BOTHER {
-		settings, err = port.getTermSettings2()
-	}
-	return settings, err
-}
-
-func (port *unixPort) getTermSettings2() (*unix.Termios, error) {
-	settings := new(unix.Termios)
-	err := ioctl(port.handle, unix.TCGETS2, uintptr(unsafe.Pointer(settings)))
+	err := ioctl(port.handle, port.ioctlGetRequest, uintptr(unsafe.Pointer(settings)))
 	return settings, err
 }
 
 func (port *unixPort) setTermSettings(settings *unix.Termios) error {
-	setAtrr := ioctlTcsetattr
-	if settings.Cflag&unix.BOTHER == unix.BOTHER {
-		setAtrr = unix.TCSETS2
-	}
-	return ioctl(port.handle, setAtrr, uintptr(unsafe.Pointer(settings)))
+	return ioctl(port.handle, port.ioctlSetRequest, uintptr(unsafe.Pointer(settings)))
 }
 
 func (port *unixPort) getModemBitsStatus() (int, error) {
